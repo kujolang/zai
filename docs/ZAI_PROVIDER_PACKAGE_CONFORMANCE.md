@@ -10,5 +10,5 @@ Contract version: `1.0.1`.
 | Authentication/security | PASS | HTTPS/host/redaction tests. |
 | Deterministic tests | PASS | Three offline tests. |
 | Kennel/exports | PASS | Immutable AI SDK ref and explicit exports. |
-| Clean-room/release | PENDING | Complete after tag. |
+| Clean-room/release | PASS | Fresh v0.1.1 install, reinstall, validation, installed smoke, and immutable tag. |
 | Documentation | PASS | README, reports, example, AGENTS. |

@@ -43,7 +43,7 @@ covered by deterministic fixtures.
 ## Tests / Distribution
 
 Three deterministic tests pass. Clean-room install, lockfile reinstall,
-installed smoke, and immutable v0.1.0 release are completed by the release loop.
+installed smoke, and immutable v0.1.1 release are completed by the release loop.
 
 ## Live Validation
 

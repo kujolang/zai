@@ -1,6 +1,6 @@
 [package]
 name = "zai"
-version = "0.1.0"
+version = "0.1.1"
 description = "Native Z.ai GLM provider for Kujo."
 license = "MIT"
 authors = ["Kujolang <contact@kujolang.ai>"]
