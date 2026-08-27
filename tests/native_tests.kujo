@@ -1,0 +1,3 @@
+test_setup { from src.zai import create_client, chat }
+test "GLM chat request and auth" { c := create_client({"api_key": "fixture", "transport": func(url, options) { assert_equal(contains(url, "/chat/completions"), 1); assert_equal(options["_headers"]["Authorization"], "Bearer fixture"); return Ok({"_status": 200, "_body": "{\"choices\":[]}"}) }}); assert_true(chat(c, {"messages": []})["ok"]) }
+test "unsafe endpoint rejected" { assert_true(create_client({"base_url": "http://evil.example"})["validation_error"] != "") }

@@ -1,0 +1,2 @@
+test_setup { from zai import create_client, zai_provider }
+test "installed exports resolve" { assert_equal(create_client({})["model"], "glm-4.5"); assert_equal(zai_provider({})["name"], "zai") }

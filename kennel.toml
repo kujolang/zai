@@ -1,0 +1,35 @@
+[package]
+name = "zai"
+version = "0.1.0"
+description = "Native Z.ai GLM provider for Kujo."
+license = "MIT"
+authors = ["Kujolang <contact@kujolang.ai>"]
+repository = "https://github.com/kujolang/zai"
+keywords = ["kujo", "zai", "glm", "ai-sdk"]
+categories = ["ai", "developer-tools"]
+readme = "README.md"
+[package.status]
+stage = "experimental"
+stability = "early"
+public_api = true
+[kujo]
+minimum_version = "1.0.2"
+entry = "zai.kujo"
+sources = ["src", "."]
+includes = ["README.md", "CHANGELOG.md", "docs", "examples", "tests", "AGENTS.md"]
+excludes = [".git", "kennel_packages", "dist", "build", "node_modules", ".loop-engineering"]
+[build]
+command = ""
+output = "dist"
+artifacts = []
+[dependencies]
+ai-sdk = { source = "github:kujolang/ai-sdk", ref = "v1.1.0" }
+[dev-dependencies]
+[scripts]
+test = "kujo test-run tests/native_tests.kujo"
+test-driver = "kujo test-run tests/driver_tests.kujo"
+verify-offline = "bash scripts/release_quality_gate.sh"
+[package.exports]
+zai = "src/zai.kujo"
+client = "src/zai.kujo"
+provider = "src/provider.kujo"

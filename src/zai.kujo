@@ -1,0 +1,16 @@
+func get(o, k, f) { if type(o) == "dict" && has_key(o, k) { return o[k] }; return f }
+func redact(v, s) { if type(v) == "string" && type(s) == "string" && s != "" { return replace(v, s, "[REDACTED]") }; return v }
+func valid(u) { if type(u) != "string" || trim(u) == "" { return "Z.ai base URL required." }; if contains(u, "@") || contains(u, "?") || contains(u, "#") { return "Z.ai URL unsafe." }; if contains(lower(u), "https://") { return "" }; return "Z.ai endpoint must use HTTPS." }
+func create_client_impl(config) { if type(config) != "dict" { config := {} }; base := get(config, "base_url", "https://api.z.ai/api/paas/v4"); key := get(config, "api_key", env("ZAI_API_KEY")); if type(key) != "string" { key := "" }; return {"base_url": base, "api_key": key, "model": get(config, "model", "glm-4.5"), "timeout": get(config, "timeout", 60.0), "transport": get(config, "transport", null), "validation_error": valid(base)} }
+func transport_for(c) { if type(get(c, "transport", null)) == "function" { return c["transport"] }; return http_request }
+func request(c, p) {
+	if c["validation_error"] != "" { return {"ok": false, "message": c["validation_error"]} }
+	h := {"Content-Type": "application/json", "Authorization": "Bearer " + c["api_key"]}
+	result := transport_for(c)(c["base_url"] + "/chat/completions", {"method": "POST", "timeout": c["timeout"], "_headers": h, "_body": to_json(p)})
+	match result {
+		case Err(e): { return {"ok": false, "message": redact(to_string(e), c["api_key"])} }
+		case Ok(r): { s := get(r, "_status", 0); raw := get(r, "_body", ""); d := null; try { d = parse_json(raw) } except e { d = {} }; if s < 200 || s > 299 { return {"ok": false, "status_code": s, "data": d} }; return {"ok": true, "status_code": s, "data": d} }
+	}
+}
+export create_client := create_client_impl
+export chat := func(c, options) { p := options; if type(p) != "dict" { p := {} }; if has_key(p, "model") == 0 { p["model"] := c["model"] }; return request(c, p) }

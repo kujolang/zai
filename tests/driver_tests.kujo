@@ -1,0 +1,2 @@
+test_setup { from src.provider import zai_provider, zai_driver }
+test "driver contract" { p := zai_provider({"model": "glm-4.5"}); d := zai_driver(); assert_equal(d["version"], "1.0.0"); assert_equal(d["encode_chat"]({"provider": p, "messages": [], "resolved_options": {}})["url"], "https://api.z.ai/api/paas/v4/chat/completions") }
