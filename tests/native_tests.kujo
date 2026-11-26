@@ -1,3 +1,84 @@
-test_setup { from src.zai import create_client, chat }
+test_setup { from src.zai import create_client, chat, parse_stream }
 test "GLM chat request and auth" { c := create_client({"api_key": "fixture", "transport": func(url, options) { assert_equal(contains(url, "/chat/completions"), 1); assert_equal(options["_headers"]["Authorization"], "Bearer fixture"); return Ok({"_status": 200, "_body": "{\"choices\":[]}"}) }}); assert_true(chat(c, {"messages": []})["ok"]) }
 test "unsafe endpoint rejected" { assert_true(create_client({"base_url": "http://evil.example"})["validation_error"] != "") }
+
+test "native response preserves shape while redacting nested diagnostics" {
+    client := create_client({"api_key":"fixture-key","transport":func(url,options) {
+        return Ok({"_status":200,"_headers":{"x-trace":"fixture-key"},"_body":"{\"data\":[{\"key\":\"f\\u0069xture-key\",\"usage\":3}]}"})
+    }})
+    response := chat(client,{"model":"fixture","input":"hello"})
+    assert_equal(response["data"]["data"][0]["key"],"[REDACTED]")
+    assert_equal(response["data"]["data"][0]["usage"],3)
+    assert_equal(contains(to_json(response),"fixture-key"),0)
+}
+
+test "native reports malformed success, provider errors and redirects" {
+    for wire in [
+        {"_status":200,"_body":"invalid"},
+        {"_status":200,"_body":"{\"error\":{\"message\":\"fixture-key denied\"}}"},
+        {"_status":302,"_body":"{\"redirect\":true}"},
+    ] {
+        transport := func(url, options) { return Ok(wire) }
+        client := create_client({"api_key":"fixture-key","transport":transport})
+        response := chat(client,{})
+        assert_equal(response["ok"],false)
+        assert_equal(response["status_code"],wire["_status"])
+        assert_equal(contains(to_json(response),"fixture-key"),0)
+    }
+}
+
+test "parser reassembles SSE chunks and preserves terminal state" {
+    wire := ": heartbeat\r\ndata: {\"choices\":\r\ndata: []}\r\n\r\ndata: [DONE]\r\n\r\n"
+    fallback := parse_stream([],wire)
+    assert_true(fallback["ok"])
+    assert_true(fallback["complete"])
+    assert_equal(fallback["events"],[{"choices":[]}])
+    assert_equal(parse_stream([substring(wire,0,24),substring(wire,24,len(wire))],""),fallback)
+    assert_equal(parse_stream([], "data: {}\n\n")["complete"],false)
+    assert_equal(parse_stream([], "data: [DONE]\n\ndata: {}\n\n")["ok"],false)
+}
+
+test "native stream returns validated events" {
+    client := create_client({"api_key":"fixture-key","transport":func(url,options) {
+        assert_equal(options["_headers"]["Accept"],"text/event-stream")
+        return Ok({"_status":200,"_body":"data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"})
+    }})
+    response := chat(client,{"stream":true})
+    assert_true(response["ok"])
+    assert_equal(response["events"][0]["choices"][0]["delta"]["content"],"Hello")
+}
+
+test "GLM controls and supplied model survive without changing options" {
+    settings := {"model":"override","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}],"thinking":{"type":"enabled"},"tool_stream":true}
+    transport := func(url, options) {
+        assert_equal(url,"https://public.example:8443/inference/chat/completions")
+        assert_equal(options["redirects"],"none")
+        assert_equal(options["max_response_bytes"],8388608)
+        assert_equal(parse_json(options["_body"]),settings)
+        return Ok({"_status":200,"_body":"{\"choices\":[]}"})
+    }
+    client := create_client({"base_url":" https://public.example:8443/inference/// ","api_key":"fixture-key","model":"default-model","transport":transport})
+    assert_true(chat(client,settings)["ok"])
+    assert_equal(settings["model"],"override")
+}
+
+test "missing bearer and invalid timeout stop before dispatch" {
+    transport := func(url, options) {
+        assert_equal("transport invoked","transport must be idle")
+        return Err("unexpected call")
+    }
+    assert_equal(chat(create_client({"api_key":"","transport":transport}),{})["ok"],false)
+    assert_equal(chat(create_client({"api_key":"fixture-key","timeout":-1,"transport":transport}),{})["ok"],false)
+    assert_equal(chat(create_client({"api_key":"fixture-key","transport":transport}),[])["ok"],false)
+}
+
+test "Z.ai HTTP errors keep code and redacted JSON" {
+    transport := func(url, options) {
+        return Ok({"_status":429,"_body":"{\"code\":1302,\"message\":\"fixture-key rate limited\"}"})
+    }
+    response := chat(create_client({"api_key":"fixture-key","transport":transport}),{})
+    assert_equal(response["ok"],false)
+    assert_equal(response["status_code"],429)
+    assert_equal(response["data"]["code"],1302)
+    assert_equal(response["message"],"[REDACTED] rate limited")
+}
