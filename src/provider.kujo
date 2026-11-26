@@ -1,10 +1,212 @@
-func get(o, k, f) { if type(o) == "dict" && has_key(o, k) { return o[k] }; return f }
-func provider_impl(config) { if type(config) != "dict" { config := {} }; return {"name": "zai", "base_url": "https://api.z.ai/api/paas/v4", "chat_path": "/chat/completions", "api_key_env": "ZAI_API_KEY", "default_model": get(config, "model", "glm-4.5"), "capabilities": {"streaming": true, "tool_calls": true, "json_mode": true}, "driver": driver()} }
-func describe(p) { return {"id": "zai-glm-openai-compatible", "protocol": "z-ai-openai-compatible", "auth": {"mode": "bearer"}, "capabilities": p["capabilities"]} }
-func validate(p) { return {"ok": true, "errors": []} }
-func encode_chat(ctx) { o := ctx["resolved_options"]; return {"url": ctx["provider"]["base_url"] + "/chat/completions", "method": "POST", "headers": {"Content-Type": "application/json"}, "protected_headers": ["Authorization", "Content-Type"], "body": to_json({"model": get(o, "model", ctx["provider"]["default_model"]), "messages": ctx["messages"], "stream": get(o, "stream", false)}), "stream_mode": get(o, "stream", false)} }
-func decode_chat(ctx) { d := ctx["data"]; cs := get(d, "choices", []); first := {}; if len(cs) > 0 { first := cs[0] }; m := get(first, "message", {}); u := get(d, "usage", {}); return {"ok": true, "request_id": get(d, "id", ""), "model": get(d, "model", ctx["fallback_model"]), "output_text": get(m, "content", ""), "finish_reason": get(first, "finish_reason", "stop"), "tool_calls": get(m, "tool_calls", []), "usage": {"input_tokens": get(u, "prompt_tokens", 0), "output_tokens": get(u, "completion_tokens", 0), "total_tokens": get(u, "total_tokens", 0)}, "raw_provider": d} }
-func decode_error(ctx) { d := ctx["data"]; if type(d) != "dict" || has_key(d, "error") == 0 { return {"ok": false, "matched": false} }; return {"ok": false, "matched": true, "category": "provider", "message": get(d, "error", "Z.ai request failed"), "provider_code": "zai_error", "raw_provider": d} }
-func driver() { return {"contract": "ai-sdk-provider-driver", "version": "1.0.0", "id": "zai-glm-openai-compatible", "describe": describe, "validate": validate, "encode_chat": encode_chat, "decode_chat": decode_chat, "decode_error": decode_error} }
+from src.zai import zai_endpoint, zai_base, zai_default_model, parse_stream, zai_provider_error, zai_failure_message
+
+func get(value,key,fallback) {
+    if type(value) == "dict" && has_key(value,key) { return value[key] }
+    return fallback
+}
+
+func provider_impl(config) {
+    return {
+        "name":"zai",
+        "base_url":zai_base,"chat_path":"/chat/completions",
+        "default_model":get(config,"model",zai_default_model),
+        "api_key_env":"ZAI_API_KEY",
+        "package_provider":true,"stream_usage":false,
+        "capabilities":{"streaming":true,"tool_calls":true,"structured_output":true,"json_mode":true,"vision":true,"reasoning":true},
+        "driver":driver(),
+    }
+}
+
+func describe(provider) {
+    return {
+        "id":"zai-glm-openai-compatible","protocol":"z-ai-openai-compatible",
+        "auth":{"mode":"bearer","allow_anonymous":false},"capabilities":provider["capabilities"],
+    }
+}
+
+func validate(provider, endpoint, field) {
+    if endpoint(field(provider,"base_url","")) == "" {
+        return {"ok":false,"errors":[{"field":"base_url","message":"Z.ai base URL must be HTTPS."}]}
+    }
+    return {"ok":true,"errors":[]}
+}
+
+func encode_chat(context, field) {
+    resolved := field(context,"resolved_options",{})
+    prepared := field(context,"payload",{})
+    options := field(context,"options",{})
+    provider := context["provider"]
+    stream := field(prepared,"stream",field(resolved,"stream",false))
+    payload := {
+        "model":field(prepared,"model",field(resolved,"model",field(provider,"default_model",""))),
+        "messages":field(prepared,"messages",field(context,"messages",[])),
+        "stream":stream,
+    }
+    for key in [
+        "tools","tool_choice","response_format","temperature","top_p","max_tokens","stop",
+        "thinking","reasoning_effort","do_sample","tool_stream","request_id","user_id",
+    ] {
+        if has_key(prepared,key) { payload[key] := prepared[key] }
+        else if has_key(resolved,key) { payload[key] := resolved[key] }
+        else if has_key(options,key) { payload[key] := options[key] }
+    }
+    headers := {"Content-Type":"application/json"}
+    credential := field(context,"credential","")
+    if type(credential) == "string" && credential != "" { headers["Authorization"] := "Bearer "+credential }
+    if stream { headers["Accept"] := "text/event-stream" }
+    return {
+        "url":provider["base_url"]+"/chat/completions","method":"POST","headers":headers,
+        "protected_headers":["Authorization","Content-Type"],"body":to_json(payload),"stream_mode":stream,
+    }
+}
+
+func usage(value) {
+    input := get(value,"prompt_tokens",0)
+    output := get(value,"completion_tokens",0)
+    if type(input) != "int" || input < 0 { input = 0 }
+    if type(output) != "int" || output < 0 { output = 0 }
+    total := get(value,"total_tokens",input+output)
+    if type(total) != "int" || total < 0 { total = input+output }
+    return {"input_tokens":input,"output_tokens":output,"total_tokens":total}
+}
+
+func delta_text(content) {
+    if type(content) == "string" { return content }
+    if type(content) != "array" { return "" }
+    values := range(0,len(content))
+    for index in range(0,len(content)) {
+        part := content[index]
+        text := get(part,"text",part)
+        values[index] = ""
+        if type(text) == "string" { values[index] = text }
+    }
+    return join(values,"")
+}
+
+func decode_chat(context, failed) {
+    data := get(context,"data",null)
+    if type(data) != "dict" || failed(data) { return {"ok":false} }
+    choices := get(data,"choices",null)
+    if type(choices) != "array" || len(choices) == 0 { return {"ok":false} }
+    choice := choices[0]
+    message := get(choice,"message",null)
+    if type(message) != "dict" { return {"ok":false} }
+    finish := get(choice,"finish_reason","")
+    if type(finish) != "string" { finish = "" }
+    calls := get(message,"tool_calls",[])
+    if type(calls) != "array" { calls = [] }
+    return {
+        "ok":true,"request_id":get(data,"request_id",get(data,"id",get(context,"request_id",""))),
+        "model":get(data,"model",get(context,"fallback_model","")),
+        "output_text":delta_text(get(message,"content",null)),"finish_reason":finish,
+        "tool_calls":calls,"usage":usage(get(data,"usage",{})),"raw_provider":data,
+    }
+}
+
+func decode_error(context, failed, message_for) {
+    data := get(context,"data",null)
+    if !failed(data) { return {"ok":false,"matched":false} }
+    category := "provider"
+    status := get(context,"status_code",0)
+    if status == 401 || status == 403 { category = "auth" }
+    if status == 429 { category = "rate_limit" }
+    return {
+        "ok":false,"matched":true,"category":category,"message":message_for(data),
+        "provider_code":get(get(data,"error",{}),"code",get(data,"code","zai_error")),"raw_provider":data,
+    }
+}
+
+func append_call(call, delta) {
+    for field in ["id","type"] {
+        value := get(delta,field,null)
+        if type(value) == "string" && value != "" { call[field] = value }
+    }
+    details := call["function"]
+    incoming := get(delta,"function",{})
+    name := get(incoming,"name","")
+    args := get(incoming,"arguments","")
+    if type(name) == "string" && name != "" { details["name"] = name }
+    if type(args) == "string" { details["arguments"] = details["arguments"]+args }
+    if type(args) == "dict" || type(args) == "array" { details["arguments"] = to_json(args) }
+    call["function"] = details
+    return call
+}
+
+func decode_stream(context, parser, failed) {
+    parsed := parser(get(context,"chunks",[]),get(context,"body_text",""))
+    if !parsed["ok"] || !parsed["complete"] || len(parsed["events"]) == 0 { return {"ok":false} }
+    events := parsed["events"]
+    text := range(0,len(events))
+    calls := {}
+    largest_call := -1
+    finish := ""
+    model := ""
+    request_id := ""
+    counts := usage({})
+    for index in range(0,len(events)) {
+        event := events[index]
+        if failed(event) { return {"ok":false} }
+        if model == "" { model = get(event,"model","") }
+        if request_id == "" { request_id = get(event,"request_id",get(event,"id","")) }
+        event_usage := get(event,"usage",null)
+        if type(event_usage) == "dict" { counts = usage(event_usage) }
+        choices := get(event,"choices",[])
+        if type(choices) != "array" { return {"ok":false} }
+        text[index] = ""
+        if len(choices) == 0 { continue }
+        choice := choices[0]
+        delta := get(choice,"delta",{})
+        text[index] = delta_text(get(delta,"content",null))
+        reason := get(choice,"finish_reason",null)
+        if type(reason) == "string" && reason != "" { finish = reason }
+        fragments := get(delta,"tool_calls",[])
+        if fragments == null { continue }
+        if type(fragments) != "array" { return {"ok":false} }
+        for fragment in fragments {
+            slot := get(fragment,"index",null)
+            if type(slot) != "int" || slot < 0 || slot >= 1024 { return {"ok":false} }
+            key := to_string(slot)
+            empty := {"id":"","type":"function","function":{"name":"","arguments":""}}
+            calls[key] = append_call(get(calls,key,empty),fragment)
+            if slot > largest_call { largest_call = slot }
+        }
+    }
+    if finish == "" { return {"ok":false} }
+    if model == "" { model = get(context,"fallback_model","") }
+    if request_id == "" { request_id = get(context,"request_id","") }
+    ordered := []
+    for index in range(0,largest_call+1) {
+        key := to_string(index)
+        if has_key(calls,key) { ordered = push(ordered,calls[key]) }
+    }
+    return {
+        "ok":true,"model":model,"request_id":request_id,"output_text":join(text,""),
+        "finish_reason":finish,"tool_calls":ordered,"usage":counts,
+        "raw_provider":{"stream_mode":true,"stream_events":events,"model":model,"id":request_id},
+    }
+}
+
+func driver() {
+    field := get
+    endpoint := zai_endpoint
+    failed := zai_provider_error
+    message_for := zai_failure_message
+    parser := parse_stream
+    validate_provider := validate
+    chat_encoder := encode_chat
+    chat_decoder := decode_chat
+    error_decoder := decode_error
+    stream_decoder := decode_stream
+    return {
+        "contract":"ai-sdk-provider-driver","version":"1.0.0","id":"zai-glm-openai-compatible",
+        "describe":describe,
+        "encode_chat":func(context) { return chat_encoder(context,field) },
+        "validate":func(provider) { return validate_provider(provider,endpoint,field) },
+        "decode_chat":func(context) { return chat_decoder(context,failed) },
+        "decode_error":func(context) { return error_decoder(context,failed,message_for) },
+        "decode_stream":func(context) { return stream_decoder(context,parser,failed) },
+    }
+}
+
 export zai_provider := provider_impl
 export zai_driver := driver

@@ -1,0 +1,19 @@
+from zai import create_client, chat, zai_driver, zai_provider
+
+transport := func(url, options) {
+    if parse_json(options["_body"])["model"] != "glm-4.5" { return Err("unexpected model") }
+    return Ok({"_status":200,"_body":"{\"choices\":[]}"})
+}
+client := create_client({"api_key":"fixture-key","transport":transport})
+if !chat(client,{"messages":[]})["ok"] { exit(1) }
+
+driver := zai_driver()
+provider := zai_provider({"model":"fixture"})
+result := driver["encode_chat"]({
+    "provider":provider,"credential":"fixture-key","messages":[{"role":"user","content":"hello"}],
+    "resolved_options":{"model":"fixture"},
+})
+if result["url"] != "https://api.z.ai/api/paas/v4/chat/completions" { exit(3) }
+
+stream := driver["decode_stream"]({"body_text":"data: {\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"})
+if !stream["ok"] || stream["output_text"] != "hello" { exit(4) }
