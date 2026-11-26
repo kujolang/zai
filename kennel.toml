@@ -13,10 +13,10 @@ stage = "experimental"
 stability = "early"
 public_api = true
 [kujo]
-minimum_version = "1.0.2"
+minimum_version = "1.4.0"
 entry = "zai.kujo"
 sources = ["src", "."]
-includes = ["README.md", "CHANGELOG.md", "docs", "examples", "tests", "AGENTS.md"]
+includes = ["README.md", "CHANGELOG.md", "docs", "examples", "scripts", "tests", "AGENTS.md"]
 excludes = [".git", "kennel_packages", "dist", "build", "node_modules", ".loop-engineering"]
 [build]
 command = ""

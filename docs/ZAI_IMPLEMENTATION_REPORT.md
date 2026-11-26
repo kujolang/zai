@@ -7,12 +7,12 @@ request fields retained natively.
 
 ## Official API Evidence
 
-- https://docs.z.ai/guides/overview
-- https://docs.z.ai/api-reference
+- [Z.ai Chat Completion](https://docs.z.ai/api-reference/llm/chat-completion)
+- [Z.ai Stream Tool Call](https://docs.z.ai/guides/tools/stream-tool)
 
 ## Evidence Date
 
-2026-08-27.
+2026-11-26.
 
 ## Protocol Classification
 
@@ -32,8 +32,7 @@ metadata.
 
 ## Public Exports / Dependencies
 
-`create_client`, `chat`, `zai_provider`, `zai_driver`; Kujo `>= 1.0.2` and
-immutable AI SDK `github:kujolang/ai-sdk@v1.1.0`.
+`create_client`, `chat`, `zai_provider`, `zai_driver`; current source requires Kujo `>= 1.4.0` for the byte-count limit and compiled runtime fixture. The tagged v0.1.1 release requires Kujo `>= 1.0.2`. The AI SDK dependency remains `github:kujolang/ai-sdk@v1.1.0`.
 
 ## Authentication / Security
 
@@ -42,8 +41,7 @@ covered by deterministic fixtures.
 
 ## Tests / Distribution
 
-Three deterministic tests pass. Clean-room install, lockfile reinstall,
-installed smoke, and immutable v0.1.1 release are completed by the release loop.
+The offline gate covers native transport, GLM driver normalization, and execution through the compiled VM. The installed smoke exercises both root exports and the driver stream parser.
 
 ## Live Validation
 

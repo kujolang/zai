@@ -1,2 +1,10 @@
-test_setup { from zai import create_client, zai_provider }
+test_setup { from zai import create_client, zai_provider, zai_driver }
 test "installed exports resolve" { assert_equal(create_client({})["model"], "glm-4.5"); assert_equal(zai_provider({})["name"], "zai") }
+
+test "installed driver resolves the native stream parser" {
+    driver := zai_driver()
+    body := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+    stream := driver["decode_stream"]({"body_text":body})
+    assert_true(stream["ok"])
+    assert_equal(stream["output_text"],"ok")
+}

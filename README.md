@@ -9,9 +9,11 @@ provider-owned reasoning, tools, and vision request fields.
 
 ## Install
 
+The current source requires Kujo 1.4.0 or later. The tagged v0.1.1 release supports Kujo 1.0.2.
+
 ```bash
-kujo kennel add github:kujolang/zai@v0.1.1
-kujo kennel install
+kujo run /path/to/kennel/kennel.kujo -- add github:kujolang/zai@v0.1.1 --alias zai
+kujo run /path/to/kennel/kennel.kujo -- install
 ```
 
 ## 30-second quick start
@@ -21,13 +23,17 @@ from zai import create_client, chat
 
 client := create_client({
     "api_key": env("ZAI_API_KEY"),
-    "model": "glm-4.5",
+    "model": "glm-4.6",
 })
 
 result := chat(client, {
     "messages": [{"role": "user", "content": "Say hello."}],
 })
-print(result["data"])
+if !result["ok"] {
+    print(result["message"])
+    exit(1)
+}
+print(result["data"]["choices"][0]["message"]["content"])
 ```
 
 ## Native Provider API
@@ -38,7 +44,7 @@ remain visible in the native request and raw response.
 ```kujo
 from zai import create_client, chat
 
-client := create_client({"model": "glm-4.5"})
+client := create_client({"model": "glm-4.6"})
 result := chat(client, {
     "messages": [
         {"role": "user", "content": "Explain GLM reasoning controls."},
@@ -49,22 +55,21 @@ result := chat(client, {
 
 ## AI SDK integration
 
-The public Z.ai provider factory uses the compatible chat driver while leaving
-GLM-specific reasoning and multimodal fields native.
+The Z.ai driver preserves GLM thinking controls, full tool-turn messages, and multimodal content. Native callers can set `stream: true` to receive completed SSE events. The driver normalizes finish reason, usage, and streamed tool calls while retaining the raw events.
 
 ```kujo
 from zai import zai_provider
-from ai_sdk import generate_text
+from src.ai_sdk import create_client, chat_completion
 
-provider := zai_provider({"model": "glm-4.5"})
-result := generate_text(provider, {"messages": [{"role": "user", "content": "Hello."}]})
-print(result["text"])
+provider := zai_provider({"model": "glm-4.6"})
+client := create_client(provider, null)
+result := chat_completion(client, [{"role": "user", "content": "Hello."}], {})
+if result["ok"] { print(result["output_text"]) }
 ```
 
 ## Authentication and security
 
-Set `ZAI_API_KEY`. Requests use the official Z.ai HTTPS endpoint; credentials
-are host-bound, embedded URL credentials are rejected, and errors are redacted.
+Set `ZAI_API_KEY`. The native client validates the configured HTTPS URL and bearer value, disables redirects, caps responses at 8 MiB, and redacts the key from returned diagnostics. The AI SDK factory uses the official Z.ai HTTPS endpoint.
 
 ## Testing and docs
 

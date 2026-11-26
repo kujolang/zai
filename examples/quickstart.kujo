@@ -1,4 +1,8 @@
 from zai import create_client, chat
-client := create_client({"model": "glm-4.5"})
+client := create_client({"model": "glm-4.6"})
 result := chat(client, {"messages": [{"role": "user", "content": "Say hello."}]})
-print(result["data"])
+if !result["ok"] {
+    print(result["message"])
+    exit(1)
+}
+print(result["data"]["choices"][0]["message"]["content"])
