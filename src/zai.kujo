@@ -11,6 +11,7 @@ func get(value, key, fallback) {
 func endpoint(value) {
     if type(value) != "string" { return "" }
     url := trim(value)
+    if url == ZAI_BASE { return url }
     if regex_match(url,"[\\x00-\\x20\\x7f@?#\\\\]") { return "" }
     if !regex_match(lower(url),"^https://(?:[a-z0-9][a-z0-9.-]*|\\[[0-9a-f:.]+\\])(?::[0-9]{1,5})?(?:/[a-z0-9._~/-]*)?$") { return "" }
     for part in split(url,"/") {
